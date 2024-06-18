@@ -1430,8 +1430,8 @@ func Routes() *web.Route {
 							Delete(reqToken(), mustNotBeArchived, bind(api.IssueMeta{}), repo.RemoveIssueDependency)
 						m.Combo("/blocks").
 							Get(repo.GetIssueBlocks).
-							Post(reqToken(), bind(api.IssueMeta{}), repo.CreateIssueBlocking).
-							Delete(reqToken(), bind(api.IssueMeta{}), repo.RemoveIssueBlocking)
+							Post(reqToken(), bind(api.IssueMeta{}), repo.CreateIssueDependency).
+							Delete(reqToken(), bind(api.IssueMeta{}), repo.RemoveIssueDependency)
 						m.Group("/pin", func() {
 							m.Combo("").
 								Post(reqToken(), reqAdmin(), repo.PinIssue).

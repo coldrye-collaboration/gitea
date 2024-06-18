@@ -633,7 +633,7 @@ func CloseBranchPulls(ctx context.Context, doer *user_model.User, repoID int64, 
 
 	var errs errlist
 	for _, pr := range prs {
-		if err = issue_service.ChangeStatus(ctx, pr.Issue, doer, "", true); err != nil && !issues_model.IsErrPullWasClosed(err) && !issues_model.IsErrDependenciesLeft(err) {
+		if err = issue_service.ChangeStatus(ctx, pr.Issue, doer, "", true); err != nil && !issues_model.IsErrPullWasClosed(err) && !issues_model.IsErrBlockingDependenciesLeft(err) {
 			errs = append(errs, err)
 		}
 	}

@@ -720,7 +720,7 @@ func CreateIssue(ctx *context.APIContext) {
 
 	if form.Closed {
 		if err := issue_service.ChangeStatus(ctx, issue, ctx.Doer, "", true); err != nil {
-			if issues_model.IsErrDependenciesLeft(err) {
+			if issues_model.IsErrBlockingDependenciesLeft(err) {
 				ctx.Error(http.StatusPreconditionFailed, "DependenciesLeft", "cannot close this issue because it still has open dependencies")
 				return
 			}
@@ -892,7 +892,7 @@ func EditIssue(ctx *context.APIContext) {
 			}
 		}
 		if err := issue_service.ChangeStatus(ctx, issue, ctx.Doer, "", api.StateClosed == api.StateType(*form.State)); err != nil {
-			if issues_model.IsErrDependenciesLeft(err) {
+			if issues_model.IsErrBlockingDependenciesLeft(err) {
 				ctx.Error(http.StatusPreconditionFailed, "DependenciesLeft", "cannot close this issue because it still has open dependencies")
 				return
 			}

@@ -16,7 +16,7 @@ import (
 func ChangeStatus(ctx context.Context, issue *issues_model.Issue, doer *user_model.User, commitID string, closed bool) error {
 	comment, err := issues_model.ChangeIssueStatus(ctx, issue, doer, closed)
 	if err != nil {
-		if issues_model.IsErrDependenciesLeft(err) && closed {
+		if issues_model.IsErrBlockingDependenciesLeft(err) && closed {
 			if err := issues_model.FinishIssueStopwatchIfPossible(ctx, doer, issue); err != nil {
 				log.Error("Unable to stop stopwatch for issue[%d]#%d: %v", issue.ID, issue.Index, err)
 			}

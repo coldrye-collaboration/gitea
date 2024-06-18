@@ -715,7 +715,7 @@ func EditPullRequest(ctx *context.APIContext) {
 			return
 		}
 		if err := issue_service.ChangeStatus(ctx, issue, ctx.Doer, "", api.StateClosed == api.StateType(*form.State)); err != nil {
-			if issues_model.IsErrDependenciesLeft(err) {
+			if issues_model.IsErrBlockingDependenciesLeft(err) {
 				ctx.Error(http.StatusPreconditionFailed, "DependenciesLeft", "cannot close this pull request because it still has open dependencies")
 				return
 			}

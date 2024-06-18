@@ -237,7 +237,7 @@ func Merge(ctx context.Context, pr *issues_model.PullRequest, doer *user_model.U
 		if isClosed != ref.Issue.IsClosed {
 			if err = issue_service.ChangeStatus(ctx, ref.Issue, doer, pr.MergedCommitID, isClosed); err != nil {
 				// Allow ErrDependenciesLeft
-				if !issues_model.IsErrDependenciesLeft(err) {
+				if !issues_model.IsErrBlockingDependenciesLeft(err) {
 					return err
 				}
 			}

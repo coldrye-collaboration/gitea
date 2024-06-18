@@ -632,13 +632,13 @@ func (issue *Issue) GetParticipantIDsByIssue(ctx context.Context) ([]int64, erro
 	return userIDs, nil
 }
 
-// BlockedByDependencies finds all Dependencies an issue is blocked by
-func (issue *Issue) BlockedByDependencies(ctx context.Context, opts db.ListOptions) (issueDeps []*DependencyInfo, err error) {
+func (issue *Issue) DependenciesByDependencyType(ctx context.Context, depType DependencyType, opts db.ListOptions) (issueDeps []*DependencyInfo, err error) {
 	sess := db.GetEngine(ctx).
 		Table("issue").
 		Join("INNER", "repository", "repository.id = issue.repo_id").
 		Join("INNER", "issue_dependency", "issue_dependency.dependency_id = issue.id").
 		Where("issue_id = ?", issue.ID).
+		And("type = ?", depType).
 		// sort by repo id then created date, with the issues of the same repo at the beginning of the list
 		OrderBy("CASE WHEN issue.repo_id = ? THEN 0 ELSE issue.repo_id END, issue.created_unix DESC", issue.RepoID)
 	if opts.Page != 0 {
@@ -653,22 +653,44 @@ func (issue *Issue) BlockedByDependencies(ctx context.Context, opts db.ListOptio
 	return issueDeps, err
 }
 
-// BlockingDependencies returns all blocking dependencies, aka all other issues a given issue blocks
-func (issue *Issue) BlockingDependencies(ctx context.Context) (issueDeps []*DependencyInfo, err error) {
-	err = db.GetEngine(ctx).
-		Table("issue").
-		Join("INNER", "repository", "repository.id = issue.repo_id").
-		Join("INNER", "issue_dependency", "issue_dependency.issue_id = issue.id").
-		Where("dependency_id = ?", issue.ID).
-		// sort by repo id then created date, with the issues of the same repo at the beginning of the list
-		OrderBy("CASE WHEN issue.repo_id = ? THEN 0 ELSE issue.repo_id END, issue.created_unix DESC", issue.RepoID).
-		Find(&issueDeps)
+// BlockedByDependencies finds all dependencies this issue is blocked by
+func (issue *Issue) BlockedByDependencies(ctx context.Context, opts db.ListOptions) (issueDeps []*DependencyInfo, err error) {
+	return issue.DependenciesByDependencyType(ctx, DependencyTypeBlockedBy, opts)
+}
 
-	for _, depInfo := range issueDeps {
-		depInfo.Issue.Repo = &depInfo.Repository
-	}
+// BlockingDependencies returns dependencies this issue is blocking
+func (issue *Issue) BlockingDependencies(ctx context.Context, opts db.ListOptions) (issueDeps []*DependencyInfo, err error) {
+	return issue.DependenciesByDependencyType(ctx, DependencyTypeBlocking, opts)
+}
 
-	return issueDeps, err
+// CausedByDependencies finds all dependencies this issue is caused by
+func (issue *Issue) CausedByDependencies(ctx context.Context, opts db.ListOptions) (issueDeps []*DependencyInfo, err error) {
+	return issue.DependenciesByDependencyType(ctx, DependencyTypeCausedBy, opts)
+}
+
+// CausingDependencies returns all dependencies this issue is causing
+func (issue *Issue) CausingDependencies(ctx context.Context, opts db.ListOptions) (issueDeps []*DependencyInfo, err error) {
+	return issue.DependenciesByDependencyType(ctx, DependencyTypeCausing, opts)
+}
+
+// DuplicatedByDependencies finds all dependencies this issue is duplicated by
+func (issue *Issue) DuplicatedByDependencies(ctx context.Context, opts db.ListOptions) (issueDeps []*DependencyInfo, err error) {
+	return issue.DependenciesByDependencyType(ctx, DependencyTypeDuplicatedBy, opts)
+}
+
+// CausingDependencies returns all dependencies this issue is duplicating
+func (issue *Issue) DuplicatingDependencies(ctx context.Context, opts db.ListOptions) (issueDeps []*DependencyInfo, err error) {
+	return issue.DependenciesByDependencyType(ctx, DependencyTypeDuplicating, opts)
+}
+
+// RelatedToDependencies finds all dependencies this issue is related to by
+func (issue *Issue) RelatedToDependencies(ctx context.Context, opts db.ListOptions) (issueDeps []*DependencyInfo, err error) {
+	return issue.DependenciesByDependencyType(ctx, DependencyTypeRelatedTo, opts)
+}
+
+// RelatingDependencies returns all dependencies this issue is relating to
+func (issue *Issue) RelatingDependencies(ctx context.Context, opts db.ListOptions) (issueDeps []*DependencyInfo, err error) {
+	return issue.DependenciesByDependencyType(ctx, DependencyTypeRelating, opts)
 }
 
 func migratedIssueCond(tp api.GitServiceType) builder.Cond {

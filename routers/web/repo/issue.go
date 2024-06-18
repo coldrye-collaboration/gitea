@@ -1980,7 +1980,7 @@ func ViewIssue(ctx *context.Context) {
 		return
 	}
 
-	blocking, err := issue.BlockingDependencies(ctx)
+	blocking, err := issue.BlockingDependencies(ctx, db.ListOptionsAll)
 	if err != nil {
 		ctx.ServerError("BlockingDependencies", err)
 		return
@@ -2940,7 +2940,7 @@ func UpdateIssueStatus(ctx *context.Context) {
 		}
 		if issue.IsClosed != isClosed {
 			if err := issue_service.ChangeStatus(ctx, issue, ctx.Doer, "", isClosed); err != nil {
-				if issues_model.IsErrDependenciesLeft(err) {
+				if issues_model.IsErrBlockingDependenciesLeft(err) {
 					ctx.JSON(http.StatusPreconditionFailed, map[string]any{
 						"error": ctx.Tr("repo.issues.dependency.issue_batch_close_blocked", issue.Index),
 					})
@@ -3086,7 +3086,7 @@ func NewComment(ctx *context.Context) {
 				if err := issue_service.ChangeStatus(ctx, issue, ctx.Doer, "", isClosed); err != nil {
 					log.Error("ChangeStatus: %v", err)
 
-					if issues_model.IsErrDependenciesLeft(err) {
+					if issues_model.IsErrBlockingDependenciesLeft(err) {
 						if issue.IsPull {
 							ctx.JSONError(ctx.Tr("repo.issues.dependency.pr_close_blocked"))
 						} else {

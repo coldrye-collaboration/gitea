@@ -15,8 +15,9 @@ import (
 
 // ErrDependencyExists represents a "DependencyAlreadyExists" kind of error.
 type ErrDependencyExists struct {
-	IssueID      int64
-	DependencyID int64
+	IssueID        int64
+	DependencyID   int64
+	DependencyType string
 }
 
 // IsErrDependencyExists checks if an error is a ErrDependencyExists.
@@ -35,8 +36,9 @@ func (err ErrDependencyExists) Unwrap() error {
 
 // ErrDependencyNotExists represents a "DependencyAlreadyExists" kind of error.
 type ErrDependencyNotExists struct {
-	IssueID      int64
-	DependencyID int64
+	IssueID        int64
+	DependencyID   int64
+	DependencyType string
 }
 
 // IsErrDependencyNotExists checks if an error is a ErrDependencyExists.
@@ -46,7 +48,7 @@ func IsErrDependencyNotExists(err error) bool {
 }
 
 func (err ErrDependencyNotExists) Error() string {
-	return fmt.Sprintf("issue dependency does not exist [issue id: %d, dependency id: %d]", err.IssueID, err.DependencyID)
+	return fmt.Sprintf("issue dependency does not exist [issue id: %d, dependency id: %d, type: %s]", err.IssueID, err.DependencyID, err.DependencyType)
 }
 
 func (err ErrDependencyNotExists) Unwrap() error {
@@ -55,8 +57,9 @@ func (err ErrDependencyNotExists) Unwrap() error {
 
 // ErrCircularDependency represents a "DependencyCircular" kind of error.
 type ErrCircularDependency struct {
-	IssueID      int64
-	DependencyID int64
+	IssueID        int64
+	DependencyID   int64
+	DependencyType string
 }
 
 // IsErrCircularDependency checks if an error is a ErrCircularDependency.
@@ -66,22 +69,22 @@ func IsErrCircularDependency(err error) bool {
 }
 
 func (err ErrCircularDependency) Error() string {
-	return fmt.Sprintf("circular dependencies exists (two issues blocking each other) [issue id: %d, dependency id: %d]", err.IssueID, err.DependencyID)
+	return fmt.Sprintf("circular dependencies exists [issue id: %d, dependency id: %d, type: %s]", err.IssueID, err.DependencyID, err.DependencyType)
 }
 
-// ErrDependenciesLeft represents an error where the issue you're trying to close still has dependencies left.
-type ErrDependenciesLeft struct {
+// ErrDependenciesLeft represents an error where the issue you're trying to close is still blocked by open dependencies.
+type ErrBlockingDependenciesLeft struct {
 	IssueID int64
 }
 
 // IsErrDependenciesLeft checks if an error is a ErrDependenciesLeft.
-func IsErrDependenciesLeft(err error) bool {
-	_, ok := err.(ErrDependenciesLeft)
+func IsErrBlockingDependenciesLeft(err error) bool {
+	_, ok := err.(ErrBlockingDependenciesLeft)
 	return ok
 }
 
-func (err ErrDependenciesLeft) Error() string {
-	return fmt.Sprintf("issue has open dependencies [issue id: %d]", err.IssueID)
+func (err ErrBlockingDependenciesLeft) Error() string {
+	return fmt.Sprintf("issue is blocked by open issues [issue id: %d]", err.IssueID)
 }
 
 // ErrUnknownDependencyType represents an error where an unknown dependency type was passed
@@ -109,6 +112,7 @@ type IssueDependency struct {
 	UserID       int64              `xorm:"NOT NULL"`
 	IssueID      int64              `xorm:"UNIQUE(issue_dependency) NOT NULL"`
 	DependencyID int64              `xorm:"UNIQUE(issue_dependency) NOT NULL"`
+	Type         DependencyType     `xorm:"UNIQUE(issue_dependency) NOT NULL"`
 	CreatedUnix  timeutil.TimeStamp `xorm:"created"`
 	UpdatedUnix  timeutil.TimeStamp `xorm:"updated"`
 }
@@ -124,37 +128,46 @@ type DependencyType int
 const (
 	DependencyTypeBlockedBy DependencyType = iota
 	DependencyTypeBlocking
+	DependencyTypeCausedBy
+	DependencyTypeCausing
+	DependencyTypeRelatedTo
+	DependencyTypeRelating
+	DependencyTypeDuplicatedBy
+	DependencyTypeDuplicating
 )
 
 // CreateIssueDependency creates a new dependency for an issue
-func CreateIssueDependency(ctx context.Context, user *user_model.User, issue, dep *Issue) error {
+func CreateIssueDependency(ctx context.Context, user *user_model.User, issue, dep *Issue, depType DependencyType) error {
 	ctx, committer, err := db.TxContext(ctx)
 	if err != nil {
 		return err
 	}
 	defer committer.Close()
 
+	depTypeStr := MapDependencyTypeToStr(depType)
+
 	// Check if it already exists
-	exists, err := issueDepExists(ctx, issue.ID, dep.ID)
+	exists, err := issueDepExists(ctx, issue.ID, dep.ID, depType)
 	if err != nil {
 		return err
 	}
 	if exists {
-		return ErrDependencyExists{issue.ID, dep.ID}
+		return ErrDependencyExists{issue.ID, dep.ID, depTypeStr}
 	}
 	// And if it would be circular
-	circular, err := issueDepExists(ctx, dep.ID, issue.ID)
+	circular, err := issueDepExists(ctx, dep.ID, issue.ID, depType)
 	if err != nil {
 		return err
 	}
 	if circular {
-		return ErrCircularDependency{issue.ID, dep.ID}
+		return ErrCircularDependency{issue.ID, dep.ID, depTypeStr}
 	}
 
 	if err := db.Insert(ctx, &IssueDependency{
 		UserID:       user.ID,
 		IssueID:      issue.ID,
 		DependencyID: dep.ID,
+		Type:         depType,
 	}); err != nil {
 		return err
 	}
@@ -178,10 +191,10 @@ func RemoveIssueDependency(ctx context.Context, user *user_model.User, issue, de
 	var issueDepToDelete IssueDependency
 
 	switch depType {
-	case DependencyTypeBlockedBy:
-		issueDepToDelete = IssueDependency{IssueID: issue.ID, DependencyID: dep.ID}
-	case DependencyTypeBlocking:
-		issueDepToDelete = IssueDependency{IssueID: dep.ID, DependencyID: issue.ID}
+	case DependencyTypeBlockedBy, DependencyTypeCausedBy, DependencyTypeDuplicatedBy, DependencyTypeRelatedTo:
+		issueDepToDelete = IssueDependency{IssueID: issue.ID, DependencyID: dep.ID, Type: depType}
+	case DependencyTypeBlocking, DependencyTypeCausing, DependencyTypeDuplicating, DependencyTypeRelating:
+		issueDepToDelete = IssueDependency{IssueID: dep.ID, DependencyID: issue.ID, Type: MapReverseDependencyType(depType)}
 	default:
 		return ErrUnknownDependencyType{depType}
 	}
@@ -193,7 +206,7 @@ func RemoveIssueDependency(ctx context.Context, user *user_model.User, issue, de
 
 	// If we deleted nothing, the dependency did not exist
 	if affected <= 0 {
-		return ErrDependencyNotExists{issue.ID, dep.ID}
+		return ErrDependencyNotExists{issue.ID, dep.ID, MapDependencyTypeToStr(depType)}
 	}
 
 	// Add comment referencing the removed dependency
@@ -204,19 +217,81 @@ func RemoveIssueDependency(ctx context.Context, user *user_model.User, issue, de
 }
 
 // Check if the dependency already exists
-func issueDepExists(ctx context.Context, issueID, depID int64) (bool, error) {
-	return db.GetEngine(ctx).Where("(issue_id = ? AND dependency_id = ?)", issueID, depID).Exist(&IssueDependency{})
+func issueDepExists(ctx context.Context, issueID, depID int64, depType DependencyType) (bool, error) {
+	return db.GetEngine(ctx).Where("(issue_id = ? AND dependency_id = ? AND type = ?)", issueID, depID, depType).Exist(&IssueDependency{})
 }
 
 // IssueNoDependenciesLeft checks if issue can be closed
-func IssueNoDependenciesLeft(ctx context.Context, issue *Issue) (bool, error) {
+func IssueNoBlockingDependenciesLeft(ctx context.Context, issue *Issue) (bool, error) {
 	exists, err := db.GetEngine(ctx).
 		Table("issue_dependency").
 		Select("issue.*").
 		Join("INNER", "issue", "issue.id = issue_dependency.dependency_id").
 		Where("issue_dependency.issue_id = ?", issue.ID).
 		And("issue.is_closed = ?", "0").
+		And("issue_dependency.type = ?", DependencyTypeBlockedBy).
 		Exist(&Issue{})
 
 	return !exists, err
+}
+
+func MapStrToDependencyType(depTypeStr string) DependencyType {
+	switch depTypeStr {
+	case "blockedBy":
+		return DependencyTypeBlockedBy
+	case "blocking":
+		return DependencyTypeBlocking
+	case "causedBy":
+		return DependencyTypeCausedBy
+	case "causing":
+		return DependencyTypeCausing
+	case "duplicatedBy":
+		return DependencyTypeDuplicatedBy
+	case "duplicating":
+		return DependencyTypeDuplicating
+	case "relatedTo":
+		return DependencyTypeRelatedTo
+	case "relating":
+		return DependencyTypeRelating
+	default:
+		return -1
+	}
+}
+
+func MapDependencyTypeToStr(depType DependencyType) string {
+	switch depType {
+	case DependencyTypeBlockedBy:
+		return "blockedBy"
+	case DependencyTypeBlocking:
+		return "blocking"
+	case DependencyTypeCausedBy:
+		return "causedBy"
+	case DependencyTypeCausing:
+		return "causing"
+	case DependencyTypeDuplicatedBy:
+		return "duplicatedBy"
+	case DependencyTypeDuplicating:
+		return "duplicating"
+	case DependencyTypeRelatedTo:
+		return "relatedTo"
+	case DependencyTypeRelating:
+		return "relating"
+	default:
+		return ""
+	}
+}
+
+func MapReverseDependencyType(depType DependencyType) DependencyType {
+	switch depType {
+	case DependencyTypeBlocking:
+		return DependencyTypeBlockedBy
+	case DependencyTypeCausing:
+		return DependencyTypeCausedBy
+	case DependencyTypeDuplicating:
+		return DependencyTypeDuplicatedBy
+	case DependencyTypeRelating:
+		return DependencyTypeRelatedTo
+	default:
+		return depType
+	}
 }

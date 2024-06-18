@@ -72,6 +72,8 @@
 				</div>
 			</div>
 
+			{{template "repo/issue/view_content/dependencies" .}}
+
 			{{template "repo/issue/view_content/comments" .}}
 
 			{{if and .Issue.IsPull (not $.Repository.IsArchived)}}

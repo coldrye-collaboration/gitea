@@ -60,13 +60,13 @@ func doChangeIssueStatus(ctx context.Context, issue *Issue, doer *user_model.Use
 	// Check for open dependencies
 	if issue.IsClosed && issue.Repo.IsDependenciesEnabled(ctx) {
 		// only check if dependencies are enabled and we're about to close an issue, otherwise reopening an issue would fail when there are unsatisfied dependencies
-		noDeps, err := IssueNoDependenciesLeft(ctx, issue)
+		noDeps, err := IssueNoBlockingDependenciesLeft(ctx, issue)
 		if err != nil {
 			return nil, err
 		}
 
 		if !noDeps {
-			return nil, ErrDependenciesLeft{issue.ID}
+			return nil, ErrBlockingDependenciesLeft{issue.ID}
 		}
 	}
 

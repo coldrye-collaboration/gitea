@@ -72,7 +72,17 @@ func AddDependency(ctx *context.Context) {
 		return
 	}
 
-	err = issues_model.CreateIssueDependency(ctx, ctx.Doer, issue, dep)
+	// Dependency Type
+	depTypeStr := ctx.Req.PostForm.Get("dependencyType")
+
+	var depType issues_model.DependencyType
+
+	if depType = issues_model.MapStrToDependencyType(depTypeStr); depType == -1 {
+		ctx.Error(http.StatusBadRequest, "GetDependencyType")
+		return
+	}
+
+	err = issues_model.CreateIssueDependency(ctx, ctx.Doer, issue, dep, depType)
 	if err != nil {
 		if issues_model.IsErrDependencyExists(err) {
 			ctx.Flash.Error(ctx.Tr("repo.issues.dependency.add_error_dep_exists"))
@@ -108,18 +118,12 @@ func RemoveDependency(ctx *context.Context) {
 		return
 	}
 
-	// Dependency Type
 	depTypeStr := ctx.Req.PostForm.Get("dependencyType")
 
 	var depType issues_model.DependencyType
 
-	switch depTypeStr {
-	case "blockedBy":
-		depType = issues_model.DependencyTypeBlockedBy
-	case "blocking":
-		depType = issues_model.DependencyTypeBlocking
-	default:
-		ctx.Error(http.StatusBadRequest, "GetDependecyType")
+	if depType = issues_model.MapStrToDependencyType(depTypeStr); depType == -1 {
+		ctx.Error(http.StatusBadRequest, "GetDependencyType")
 		return
 	}
 

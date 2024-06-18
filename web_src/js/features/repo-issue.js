@@ -102,41 +102,6 @@ function excludeLabel(item) {
 }
 
 export function initRepoIssueSidebarList() {
-  const repolink = $('#repolink').val();
-  const repoId = $('#repoId').val();
-  const crossRepoSearch = $('#crossRepoSearch').val();
-  const tp = $('#type').val();
-  let issueSearchUrl = `${appSubUrl}/${repolink}/issues/search?q={query}&type=${tp}`;
-  if (crossRepoSearch === 'true') {
-    issueSearchUrl = `${appSubUrl}/issues/search?q={query}&priority_repo_id=${repoId}&type=${tp}`;
-  }
-  $('#new-dependency-drop-list')
-    .dropdown({
-      apiSettings: {
-        url: issueSearchUrl,
-        onResponse(response) {
-          const filteredResponse = {success: true, results: []};
-          const currIssueId = $('#new-dependency-drop-list').data('issue-id');
-          // Parse the response from the api to work with our dropdown
-          $.each(response, (_i, issue) => {
-            // Don't list current issue in the dependency list.
-            if (issue.id === currIssueId) {
-              return;
-            }
-            filteredResponse.results.push({
-              name: `<div class="gt-ellipsis">#${issue.number} ${htmlEscape(issue.title)}</div>
-<div class="text small tw-break-anywhere">${htmlEscape(issue.repository.full_name)}</div>`,
-              value: issue.id,
-            });
-          });
-          return filteredResponse;
-        },
-        cache: false,
-      },
-
-      fullTextSearch: true,
-    });
-
   $('.menu a.label-filter-item').each(function () {
     $(this).on('click', function (e) {
       if (e.altKey) {
@@ -155,6 +120,52 @@ export function initRepoIssueSidebarList() {
     }
   });
   $('.ui.dropdown.label-filter, .ui.dropdown.select-label').dropdown('setting', {'hideDividers': 'empty'}).dropdown('refreshItems');
+}
+
+// TODO:silkentrance:additional_dependency_types:issue dropdown must be empty and only show results as user enters query
+// TODO:silkentrance:additional_dependency_types:issue dropdown must limit the number of issues fetched from server for a given query
+export function initRepoIssueDependenciesSection() {
+  const repolink = $('#repolink').val();
+  const repoId = $('#repoId').val();
+  const crossRepoSearch = $('#crossRepoSearch').val();
+  const tp = $('#type').val();
+  let issueSearchUrl = `${appSubUrl}/${repolink}/issues/search?q={query}&type=${tp}`;
+  if (crossRepoSearch === 'true') {
+    issueSearchUrl = `${appSubUrl}/issues/search?q={query}&priority_repo_id=${repoId}&type=${tp}`;
+  }
+  $('#new-dependency-type-drop-list')
+    .selectmenu();
+  $('#new-dependency-drop-list')
+    .dropdown({
+      clearable: true,
+      placeholder: 'auto',
+      allowReselection: true,
+      apiSettings: {
+        url: issueSearchUrl,
+        onResponse(response) {
+          const filteredResponse = {success: true, results: [{
+            name: 'Choose issue...',
+            value: ''
+          }]};
+          const currIssueId = $('#new-dependency-drop-list').data('issue-id');
+          // Parse the response from the api to work with our dropdown
+          $.each(response, (_i, issue) => {
+            // Don't list current issue in the dependency list.
+            if (issue.id === currIssueId) {
+              return;
+            }
+            filteredResponse.results.push({
+              name: `<div class="gt-ellipsis">#${issue.number} ${htmlEscape(issue.title)}</div>
+<div class="text small tw-break-anywhere">${htmlEscape(issue.repository.full_name)}</div>`,
+              value: issue.id,
+            });
+          });
+          return filteredResponse;
+        },
+        cache: false,
+      },
+      fullTextSearch: true,
+    });
 }
 
 export function initRepoIssueCommentDelete() {

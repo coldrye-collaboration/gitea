@@ -137,7 +137,7 @@ func CheckPullMergeable(stdCtx context.Context, doer *user_model.User, perm *acc
 			return err
 		}
 
-		if noDeps, err := issues_model.IssueNoDependenciesLeft(ctx, pr.Issue); err != nil {
+		if noDeps, err := issues_model.IssueNoBlockingDependenciesLeft(ctx, pr.Issue); err != nil {
 			return err
 		} else if !noDeps {
 			return ErrDependenciesLeft

@@ -209,7 +209,9 @@ func CreateIssueDependency(ctx *context.APIContext) {
 		return
 	}
 
-	createIssueDependency(ctx, target, dependency, ctx.Repo.Permission, *dependencyPerm)
+	depTypeStr := form.DependencyType
+
+	createIssueDependency(ctx, target, dependency, depTypeStr, ctx.Repo.Permission, *dependencyPerm)
 	if ctx.Written() {
 		return
 	}
@@ -270,7 +272,9 @@ func RemoveIssueDependency(ctx *context.APIContext) {
 		return
 	}
 
-	removeIssueDependency(ctx, target, dependency, ctx.Repo.Permission, *dependencyPerm)
+	depTypeStr := form.DependencyType
+
+	removeIssueDependency(ctx, target, dependency, depTypeStr, ctx.Repo.Permission, *dependencyPerm)
 	if ctx.Written() {
 		return
 	}
@@ -333,14 +337,16 @@ func GetIssueBlocks(ctx *context.APIContext) {
 		page = 1
 	}
 	limit := ctx.FormInt("limit")
-	if limit <= 1 {
+	if limit == 0 {
 		limit = setting.API.DefaultPagingNum
+	} else if limit > setting.API.MaxResponseItems {
+		limit = setting.API.MaxResponseItems
 	}
 
-	skip := (page - 1) * limit
-	max := page * limit
-
-	deps, err := issue.BlockingDependencies(ctx)
+	deps, err := issue.BlockingDependencies(ctx, db.ListOptions{
+		PageSize: limit,
+		Page:     page,
+	})
 	if err != nil {
 		ctx.Error(http.StatusInternalServerError, "BlockingDependencies", err)
 		return
@@ -351,11 +357,7 @@ func GetIssueBlocks(ctx *context.APIContext) {
 	repoPerms := make(map[int64]access_model.Permission)
 	repoPerms[ctx.Repo.Repository.ID] = ctx.Repo.Permission
 
-	for i, depMeta := range deps {
-		if i < skip || i >= max {
-			continue
-		}
-
+	for _, depMeta := range deps {
 		// Get the permissions for this repository
 		// If the repo ID exists in the map, return the exist permissions
 		// else get the permission and add it to the map
@@ -382,120 +384,6 @@ func GetIssueBlocks(ctx *context.APIContext) {
 	}
 
 	ctx.JSON(http.StatusOK, convert.ToAPIIssueList(ctx, ctx.Doer, issues))
-}
-
-// CreateIssueBlocking block the issue given in the body by the issue in path
-func CreateIssueBlocking(ctx *context.APIContext) {
-	// swagger:operation POST /repos/{owner}/{repo}/issues/{index}/blocks issue issueCreateIssueBlocking
-	// ---
-	// summary: Block the issue given in the body by the issue in path
-	// produces:
-	// - application/json
-	// parameters:
-	// - name: owner
-	//   in: path
-	//   description: owner of the repo
-	//   type: string
-	//   required: true
-	// - name: repo
-	//   in: path
-	//   description: name of the repo
-	//   type: string
-	//   required: true
-	// - name: index
-	//   in: path
-	//   description: index of the issue
-	//   type: string
-	//   required: true
-	// - name: body
-	//   in: body
-	//   schema:
-	//     "$ref": "#/definitions/IssueMeta"
-	// responses:
-	//   "201":
-	//     "$ref": "#/responses/Issue"
-	//   "404":
-	//     description: the issue does not exist
-
-	dependency := getParamsIssue(ctx)
-	if ctx.Written() {
-		return
-	}
-
-	form := web.GetForm(ctx).(*api.IssueMeta)
-	target := getFormIssue(ctx, form)
-	if ctx.Written() {
-		return
-	}
-
-	targetPerm := getPermissionForRepo(ctx, target.Repo)
-	if ctx.Written() {
-		return
-	}
-
-	createIssueDependency(ctx, target, dependency, *targetPerm, ctx.Repo.Permission)
-	if ctx.Written() {
-		return
-	}
-
-	ctx.JSON(http.StatusCreated, convert.ToAPIIssue(ctx, ctx.Doer, dependency))
-}
-
-// RemoveIssueBlocking unblock the issue given in the body by the issue in path
-func RemoveIssueBlocking(ctx *context.APIContext) {
-	// swagger:operation DELETE /repos/{owner}/{repo}/issues/{index}/blocks issue issueRemoveIssueBlocking
-	// ---
-	// summary: Unblock the issue given in the body by the issue in path
-	// produces:
-	// - application/json
-	// parameters:
-	// - name: owner
-	//   in: path
-	//   description: owner of the repo
-	//   type: string
-	//   required: true
-	// - name: repo
-	//   in: path
-	//   description: name of the repo
-	//   type: string
-	//   required: true
-	// - name: index
-	//   in: path
-	//   description: index of the issue
-	//   type: string
-	//   required: true
-	// - name: body
-	//   in: body
-	//   schema:
-	//     "$ref": "#/definitions/IssueMeta"
-	// responses:
-	//   "200":
-	//     "$ref": "#/responses/Issue"
-	//   "404":
-	//     "$ref": "#/responses/notFound"
-
-	dependency := getParamsIssue(ctx)
-	if ctx.Written() {
-		return
-	}
-
-	form := web.GetForm(ctx).(*api.IssueMeta)
-	target := getFormIssue(ctx, form)
-	if ctx.Written() {
-		return
-	}
-
-	targetPerm := getPermissionForRepo(ctx, target.Repo)
-	if ctx.Written() {
-		return
-	}
-
-	removeIssueDependency(ctx, target, dependency, *targetPerm, ctx.Repo.Permission)
-	if ctx.Written() {
-		return
-	}
-
-	ctx.JSON(http.StatusCreated, convert.ToAPIIssue(ctx, ctx.Doer, dependency))
 }
 
 func getParamsIssue(ctx *context.APIContext) *issues_model.Issue {
@@ -560,7 +448,7 @@ func getPermissionForRepo(ctx *context.APIContext, repo *repo_model.Repository) 
 	return &perm
 }
 
-func createIssueDependency(ctx *context.APIContext, target, dependency *issues_model.Issue, targetPerm, dependencyPerm access_model.Permission) {
+func createIssueDependency(ctx *context.APIContext, target, dependency *issues_model.Issue, depTypeStr string, targetPerm, dependencyPerm access_model.Permission) {
 	if target.Repo.IsArchived || !target.Repo.IsDependenciesEnabled(ctx) {
 		// The target's repository doesn't have dependencies enabled
 		ctx.NotFound()
@@ -579,14 +467,21 @@ func createIssueDependency(ctx *context.APIContext, target, dependency *issues_m
 		return
 	}
 
-	err := issues_model.CreateIssueDependency(ctx, ctx.Doer, target, dependency)
+	var depType issues_model.DependencyType
+
+	if depType := issues_model.MapStrToDependencyType(depTypeStr); depType == -1 {
+		ctx.Error(http.StatusBadRequest, "GetDepTypeStr", depTypeStr)
+		return
+	}
+
+	err := issues_model.CreateIssueDependency(ctx, ctx.Doer, target, dependency, depType)
 	if err != nil {
 		ctx.Error(http.StatusInternalServerError, "CreateIssueDependency", err)
 		return
 	}
 }
 
-func removeIssueDependency(ctx *context.APIContext, target, dependency *issues_model.Issue, targetPerm, dependencyPerm access_model.Permission) {
+func removeIssueDependency(ctx *context.APIContext, target, dependency *issues_model.Issue, depTypeStr string, targetPerm, dependencyPerm access_model.Permission) {
 	if target.Repo.IsArchived || !target.Repo.IsDependenciesEnabled(ctx) {
 		// The target's repository doesn't have dependencies enabled
 		ctx.NotFound()
@@ -605,7 +500,14 @@ func removeIssueDependency(ctx *context.APIContext, target, dependency *issues_m
 		return
 	}
 
-	err := issues_model.RemoveIssueDependency(ctx, ctx.Doer, target, dependency, issues_model.DependencyTypeBlockedBy)
+	var depType issues_model.DependencyType
+
+	if depType := issues_model.MapStrToDependencyType(depTypeStr); depType == -1 {
+		ctx.Error(http.StatusBadRequest, "GetDepTypeStr", depTypeStr)
+		return
+	}
+
+	err := issues_model.RemoveIssueDependency(ctx, ctx.Doer, target, dependency, depType)
 	if err != nil {
 		ctx.Error(http.StatusInternalServerError, "CreateIssueDependency", err)
 		return
